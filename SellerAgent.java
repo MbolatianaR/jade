@@ -6,7 +6,6 @@ import jade.core.behaviours.FSMBehaviour;
 import jade.core.behaviours.SimpleBehaviour;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
-import testjade.DefaultAgent;
 
 public class SellerAgent extends DefaultAgent implements Constants {
 
@@ -24,8 +23,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
     public void setup() {
         doArguments();
         addBehaviour(new SellerBehaviour(this));
-        System.out.println("Initialisation : " + getLocalName() + " après traitement de l'argument content. État de l'agent : " + this);
-        //trace("Initialisation : agent après traitement de l'argument content " + this);
+        trace("Initialisation : agent après traitement de l'argument content " + this);
     }
 
     @Override
@@ -49,7 +47,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
     }
 
     private void doArguments() {
-        if (getArguments().length > 0) {
+        if (getArguments() != null && getArguments().length > 0) {
             setContent(getArguments()[0].toString());
             setPerformative(ACLMessage.PROPOSE);
         }
@@ -84,11 +82,12 @@ public class SellerAgent extends DefaultAgent implements Constants {
 
         public SellerBehaviour(Agent agent) {
             super(agent);
+
             registerFirstState(new HandleMessageBehaviour(agent), WAITING);
             registerState(new SendMessageBehaviour(agent), PROPOSING);
-            registerState(new SendMessageBehaviour(agent), REFUSING);
-            registerState(new WinningBehaviour(agent), WINNING);
-            registerState(new LosingBehaviour(agent), LOSING);
+            registerLastState(new SendMessageBehaviour(agent), REFUSING);
+            registerLastState(new WinningBehaviour(agent), WINNING);
+            registerLastState(new LosingBehaviour(agent), LOSING);
 
             registerTransition(WAITING, PROPOSING, ACLMessage.CFP * ACLMessage.PROPOSE);
             registerTransition(WAITING, REFUSING, ACLMessage.CFP * ACLMessage.REFUSE);
@@ -98,19 +97,16 @@ public class SellerAgent extends DefaultAgent implements Constants {
             registerTransition(WAITING, LOSING, ACLMessage.REJECT_PROPOSAL * ACLMessage.REFUSE);
 
             registerDefaultTransition(PROPOSING, WAITING);
-            registerDefaultTransition(REFUSING, WAITING);
         }
 
-        // onStart et onEnd 
         @Override
         public void onStart() {
             super.onStart();
-            System.out.println("Démarrage du comportement FSM pour " + getAgent().getLocalName());
+            trace("Je souhaite effectuer le trek du tour des Annapurna avec une guide femme et un porteur sur 21 jours ");
         }
 
         @Override
         public int onEnd() {
-            System.out.println("Terminaison du comportement FSM pour " + getAgent().getLocalName());
             getAgent().doDelete();
             return super.onEnd();
         }
@@ -122,7 +118,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
          * de la performative native de l'agent définir les méthodes onStart
          * action done et onEnd
          */
-        public class HandleMessageBehaviour extends SimpleBehaviour {
+        class HandleMessageBehaviour extends SimpleBehaviour {
 
             private boolean finished = false;
             private int exitValue = 0;
@@ -165,8 +161,9 @@ public class SellerAgent extends DefaultAgent implements Constants {
             public int onEnd() {
                 return exitValue;
             }
-        }/* fin du comportement HandleMessageBehaviour */
+        }
 
+        /* fin du comportement HandleMessageBehaviour */
         /**
          * Comportement SendMessageBehaviour qui envoie une réponse au message
          * reçu suivant la performative de l’agent (Refuse ou propose) et le
@@ -174,8 +171,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
          * ProposeBehaviour et le RefuseBehaviour
          *
          */
-
-        public class SendMessageBehaviour extends OneShotBehaviour {
+        class SendMessageBehaviour extends OneShotBehaviour {
 
             ACLMessage reply;
 
@@ -191,7 +187,6 @@ public class SellerAgent extends DefaultAgent implements Constants {
                 super(agent);
             }
 
-            //[A compléter – methode d’initialisation qui crée la réponse étant donner le message reçu]
             @Override
             public void onStart() {
                 ACLMessage msg = getMessage();
@@ -200,28 +195,31 @@ public class SellerAgent extends DefaultAgent implements Constants {
                     reply.setPerformative(getPerformative());
                     reply.setContent(getContent());
                     setReply(reply);
-                    System.out.println("Initialisation de la réponse pour " + getAgent().getLocalName());
+                    trace("Initialisation de la proposition :: ", this, getAgent());
+                    trace("Proposition \n" + getReply().toString());
                 }
             }
 
             @Override
             public void action() {
                 if (getReply() != null) {
-                    System.out.println("Envoi de la réponse par " + getAgent().getLocalName() + " : \n" + getReply());
+                    trace("Envoi de la proposition :: ", this, getAgent());
                     getAgent().send(getReply());
                 }
             }
 
+            /*
+             * methode de terminaison
+             */
             @Override
             public int onEnd() {
-                System.out.println("Terminaison du comportement d'envoi pour " + getAgent().getLocalName());
+                trace("Terminaison du comportement ::  ", this, getAgent());
                 return super.onEnd();
             }
-
         }/* fin du comportement SendMessageBehaviour */
 
-        //Définissez les comportements associés aux états WINNING et LOSING 
-        public class WinningBehaviour extends OneShotBehaviour {
+        // Définissez les comportements associés aux états WINNING et LOSING 
+        class WinningBehaviour extends OneShotBehaviour {
 
             public WinningBehaviour(Agent agent) {
                 super(agent);
@@ -229,9 +227,9 @@ public class SellerAgent extends DefaultAgent implements Constants {
 
             @Override
             public void action() {
-                System.out.println("action :: " + getAgent().getLocalName() + " est gagnant avec une proposition de " + getContent() + " euros");
+                trace("action :: " + getAgent().getLocalName() + " est gagnant avec une proposition de " + getContent() + " euros");
             }
-        }/* fin du comportement WinningBehaviour */
+        }
 
         class LosingBehaviour extends OneShotBehaviour {
 
@@ -241,10 +239,11 @@ public class SellerAgent extends DefaultAgent implements Constants {
 
             @Override
             public void action() {
-                System.out.println("action :: " + getAgent().getLocalName() + " est perdant avec une proposition de " + getContent());
+                trace("action :: " + getAgent().getLocalName() + " est perdant avec une proposition de " + getContent());
             }
-        }/* fin du comportement LosingBehaviour */
+        }
 
-    }// end SellerBehaviour
+    }
+    /* fin de la classe SellerBehaviour */
 
-}//end Seller Agent
+} // end SellerAgent
