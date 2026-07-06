@@ -92,9 +92,9 @@ public class SellerAgent extends DefaultAgent implements Constants {
             registerTransition(WAITING, PROPOSING, ACLMessage.CFP * ACLMessage.PROPOSE);
             registerTransition(WAITING, REFUSING, ACLMessage.CFP * ACLMessage.REFUSE);
             registerTransition(WAITING, WINNING, ACLMessage.ACCEPT_PROPOSAL * ACLMessage.PROPOSE);
-            registerTransition(WAITING, WINNING, ACLMessage.ACCEPT_PROPOSAL * ACLMessage.REFUSE);
+            //registerTransition(WAITING, WINNING, ACLMessage.ACCEPT_PROPOSAL * ACLMessage.REFUSE);
             registerTransition(WAITING, LOSING, ACLMessage.REJECT_PROPOSAL * ACLMessage.PROPOSE);
-            registerTransition(WAITING, LOSING, ACLMessage.REJECT_PROPOSAL * ACLMessage.REFUSE);
+            //registerTransition(WAITING, LOSING, ACLMessage.REJECT_PROPOSAL * ACLMessage.REFUSE);
 
             registerDefaultTransition(PROPOSING, WAITING);
         }
@@ -102,7 +102,6 @@ public class SellerAgent extends DefaultAgent implements Constants {
         @Override
         public void onStart() {
             super.onStart();
-            trace("Je souhaite effectuer le trek du tour des Annapurna avec une guide femme et un porteur sur 21 jours ");
         }
 
         @Override
@@ -129,6 +128,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
 
             @Override
             public void onStart() {
+                super.onStart();
                 finished = false;
             }
 
@@ -159,6 +159,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
 
             @Override
             public int onEnd() {
+                super.onEnd();
                 return exitValue;
             }
         }
@@ -189,6 +190,7 @@ public class SellerAgent extends DefaultAgent implements Constants {
 
             @Override
             public void onStart() {
+                super.onStart();
                 ACLMessage msg = getMessage();
                 if (msg != null) {
                     reply = msg.createReply();
@@ -226,10 +228,20 @@ public class SellerAgent extends DefaultAgent implements Constants {
             }
 
             @Override
+            public void onStart() {
+                super.onStart();
+            }
+
+            @Override
             public void action() {
                 trace("action :: " + getAgent().getLocalName() + " est gagnant avec une proposition de " + getContent() + " euros");
             }
-        }
+
+            @Override
+            public int onEnd() {
+                return super.onEnd();
+            }
+        }/* fin du comportement WinningBehaviour */
 
         class LosingBehaviour extends OneShotBehaviour {
 
@@ -238,10 +250,20 @@ public class SellerAgent extends DefaultAgent implements Constants {
             }
 
             @Override
+            public void onStart() {
+                super.onStart();
+            }
+
+            @Override
             public void action() {
                 trace("action :: " + getAgent().getLocalName() + " est perdant avec une proposition de " + getContent());
             }
-        }
+
+            @Override
+            public int onEnd() {
+                return super.onEnd();
+            }
+        }/* fin du comportement LosingBehaviour */
 
     }
     /* fin de la classe SellerBehaviour */
