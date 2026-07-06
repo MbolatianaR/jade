@@ -1,228 +1,517 @@
-package testjade;
+package projet;
 
 import jade.core.AID;
+import jade.core.Agent;
 import jade.core.behaviours.FSMBehaviour;
 import jade.core.behaviours.OneShotBehaviour;
 import jade.core.behaviours.ParallelBehaviour;
+import static jade.core.behaviours.ParallelBehaviour.WHEN_ALL;
+import jade.core.behaviours.SimpleBehaviour;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
-
 import java.util.ArrayList;
 import java.util.List;
 
-public class Buyer extends DefaultAgent {
+public class BuyerAgent extends DefaultAgent implements Constants {
 
-    @Override
-    protected void setup() {
-        super.setup();
-        addBehaviour(new BuyerBehaviour(this));
+    //gagnant courant mis de cote
+    private ACLMessage winner = null;
+
+    //perdants d'un tour de l'enchère suite au traitement du ParallelHandleMessage
+    private List<ACLMessage> losers = new ArrayList<>();
+
+    private ACLMessage message;
+    private final List<AID> sellers;
+    private int performative;
+
+    /**
+     * @return performative REQUEST_WHEN when a proposition is made
+     */
+    private int getPerformative() {
+        return performative;
     }
 
-    private static class BuyerBehaviour extends FSMBehaviour {
-        
-        // Variables de session pour mémoriser l'état des négociations
-        private int bestPrice = Integer.MAX_VALUE;
-        private AID bestSeller = null;
-        private final List<AID> losers = new ArrayList<>();
-        private int refuseCount = 0;
+    /**
+     * @param performative the performative to set
+     */
+    private void setPerformative(int performative) {
+        this.performative = performative;
+    }
 
-        public BuyerBehaviour(Buyer a) {
+    /**
+     * @param message current message
+     */
+    private void setMessage(ACLMessage message) {
+        this.message = message;
+    }
+
+    /**
+     * @return performative REQUEST_WHEN when a proposition is made
+     */
+    private ACLMessage getMessage() {
+        return message;
+    }
+
+    /**
+     * @return the currentWinner
+     */
+    private ACLMessage getWinner() {
+        return winner;
+    }
+
+    /**
+     * @param winner the currentWinner to set
+     */
+    private void setWinner(ACLMessage winner) {
+        this.winner = winner;
+    }
+
+    /**
+     * @return the roundLosers
+     */
+    private List<ACLMessage> getLosers() {
+        return losers;
+    }
+
+    /**
+     * @param losers the roundLosers to set
+     */
+    private void setLosers(List<ACLMessage> losers) {
+        this.losers = losers;
+    }
+
+    /**
+     * @return the sellers
+     */
+    private List<AID> getSellers() {
+        return sellers;
+    }
+
+    @Override
+    public String toString() {
+        String value = "agent :: " + this.getLocalName();
+        value += "\n Winner :: \n" + (getWinner() != null ? getWinner().getContent() : "Aucun");
+        value += "\n Losers :: \n" + getLosers().size();
+        return value;
+    }
+
+    //return the float price given a string value
+    private float doPrice(String value) {
+        return Float.parseFloat(value);
+    }
+
+    private void addAllReceivers(List<AID> receivers) {
+        ACLMessage temp = getMessage();
+        receivers.forEach(seller -> {
+            temp.addReceiver(seller);
+        });
+    }
+
+    /*
+     * Constructeur BuyerAgent() initialise l'attriut sellers avec les vendeurs
+     * initalise la performatrice de l'aget buyer avec ACLMessage.FAILURE
+     */
+    public BuyerAgent() {
+        this.sellers = new ArrayList<>(FSMSELLER);
+        this.performative = ACLMessage.FAILURE;
+    }
+
+    /*
+     * méthode setup() appelle la méthode setup de la super-classe DefaultAgent
+     * ajoute le comportement BuyerBehaviour
+     * effectue l tracte suivante :trace("Initialisation de l'agent buyer  ",this);
+     *
+     */
+    @Override
+    public void setup() {
+        super.setup();
+        addBehaviour(new BuyerBehaviour(this));
+        trace("Initialisation de l'agent buyer  ", this);
+    }
+
+    private class BuyerBehaviour extends FSMBehaviour {
+
+        BuyerBehaviour(Agent a) {
             super(a);
         }
 
+        /*
+         méthode onStart() d'initialisation du comportement avec enregistrement
+         des états et des transitions
+         L’acheteur effectue un CFP dans l’état CALLING associé a comportement anonyme 
+         qui envoie un CFP.
+         La transition ACLMessage.CFP fait passer à l’état WAITING associé au comportement
+         ParallelHandleBehaviour
+         où les réponses des vendeurs sont traitées. En fin de ce comportement on a 
+         le vendeur gagnant du tour de l’enchère et les perdants qui ont 
+         envoyé un propose. 
+         Les vendeurs ayant envoyés un refus ne sont pas considérés 
+         comme perdants et ne recoivent plus de message.
+         Si tous les vendeurs ont refusé la transition ACLMessage.FAILED fait passer 
+         à l'état FAILED où un message d'échec de l'enchère est imprimé.
+         La transition ACLMessage.REQUEST_WHEN fait passer à l’état DECIDING
+         associé au comportement ParallelChooseBehaviour 
+         ParallelChooseBehaviour est un comportement parallèle qui permet l'envoi
+         d'un ACLMessage.ACCEPT_PROPOSAL au vendeur gagnant courant 
+         et un ACLMessage.REJECT_PROPOSAL aux autres vendeurs restants
+         */
         @Override
         public void onStart() {
             super.onStart();
 
-            // Enregistrement des états de l'acheteur
-            registerFirstState(new CFPBehaviour(), "CALLING");
-            registerState(new ParallelHandleBehaviour(), "WAITING");
-            registerLastState(new ParallelChooseBehaviour(), "DECIDING");
-            registerLastState(new FailedBehaviour(), "FAILURE");
+            registerFirstState(new CfpBehaviour(getAgent()), "CALLING");
+            registerState(new ParallelHandleBehaviour(getAgent()), "WAITING");
+            registerLastState(new ParallelChooseBehaviour(getAgent()), "DECIDING");
+            registerLastState(new FailedBehaviour(getAgent()), "FAILURE");
 
-            // Définition des transitions du graphe principal
-            registerDefaultTransition("CALLING", "WAITING");
-            registerTransition("WAITING", "FAILURE", 1);
-            registerTransition("WAITING", "DECIDING", 2);
+            registerTransition("CALLING", "WAITING", ACLMessage.CFP);
+            registerTransition("WAITING", "DECIDING", ACLMessage.REQUEST_WHEN);
+            registerTransition("WAITING", "FAILURE", ACLMessage.FAILURE);
         }
 
+        /*
+         * méthode onEnd()
+         * méthodes de trace :
+         * String agentInfo="Fin de vie Agent " + getAgent();"terminason du 
+         * comportement avec le comportement et la représentation sus forme de 
+         * caractères de l'agent
+         * => voir méthodes trace de DefaultAgent
+         * impression de fin de vie de l'agent
+         * terminaison de l'agent
+         */
         @Override
         public int onEnd() {
-            System.out.println(getAgent().getLocalName() + " :: Fin du comportement FSM de l'acheteur.");
+            String agentInfo = "Fin de vie Agent " + getAgent().getLocalName();
+            trace("Terminaison du comportement  ", this, getAgent());
+            trace(agentInfo);
             getAgent().doDelete();
             return super.onEnd();
         }
 
-        // --- COMPORTEMENT INITIAL : ENVOI DE L'APPEL D'OFFRE ---
-        private class CFPBehaviour extends OneShotBehaviour {
+        class CfpBehaviour extends OneShotBehaviour {
+
+            private static final String CONTENT = "je souhaite effectuer le trek du tour des Annapurna avec une guide femme et un porteur sur 21 jours";
+
+            /**
+             * Preparation du message CFP avec la liste des vendeurs en tant que
+             * receveurs et "je recherche un guide femme pour le trek tour des
+             * Annapurnas" comme contenu
+             */
+            CfpBehaviour(Agent a) {
+                super(a);
+            }
+
+            @Override
+            public void onStart() {
+                ACLMessage temp = new ACLMessage(ACLMessage.CFP);
+                doMessage(temp, CONTENT);
+                trace("Initialisation du message d'appel d'offre ", this, this.getAgent());
+            }
+
+            //utilise la méthode addAllReceivers pour ajouter tous les vendeurs au message 
+            private void doMessage(ACLMessage message, String content) {
+                message.setProtocol("enchere-un-tour");
+                message.setConversationId("guide-femme-Annapurna-Trek");
+                message.setContent(content);
+                setMessage(message);
+                addAllReceivers(getSellers());
+            }
+
+            /*
+             méthode action qui trace le message en envoi le message
+             */
             @Override
             public void action() {
-                
-                System.out.println("L’enchère commence avec un appel d’offre comprenant le message suivant « je souhaite effectuer le trek du tour des Annapurna avec une guide femme et un porteur sur 21 jours ».");
-                ACLMessage cfp = new ACLMessage(ACLMessage.CFP);
-                for (AID seller : Constants.FSMSELLER) {
-                    cfp.addReceiver(seller);
-                }
-                cfp.setContent("je souhaite effectuer le trek du tour des Annapurna avec une guide femme et un porteur sur 21 jours");
-                getAgent().send(cfp);
+                getAgent().send(getMessage());
+            }
+
+            /*
+             méthode de fin qui retourne la performative du message (CFP)
+             */
+            @Override
+            public int onEnd() {
+                trace("Terminaison du comportement ", this, getAgent());
+                trace("Envoi performative CFP " + ACLMessage.getPerformative(ACLMessage.CFP));
+                return ACLMessage.CFP;
             }
         }
 
-        // --- GESTION PARALLÈLE DES RÉPONSES VENDEURS ---
-        private class ParallelHandleBehaviour extends ParallelBehaviour {
-            public ParallelHandleBehaviour() {
-                super(WHEN_ALL);
+        /**
+         * Comportement FailedBehaviour à un coup qui impirme qu'aucun vendeur
+         * ne paticpe à l'encère car pas de guide femme disponible
+         */
+        class FailedBehaviour extends OneShotBehaviour {
+
+            FailedBehaviour(Agent a) {
+                super(a);
+            }
+
+            @Override
+            public void action() {
+                trace("Echec de l'enchère en raison de l'indisponibilité des guides femmes");
+            }
+        }
+
+        /**
+         * Comportement ParallelChooseBehaviour parallèle qui comporte comme
+         * premier élément un comportement à un coup anonyme qui créé une
+         * réponse sur le message gagnant avec la performative ACCEPT_Proposal
+         * et comme deuxième élément un comportement parallèle qui permet de
+         * créer par message perdant une réponse avec la réponse REJECT_PROPOSAL
+         * en prenant la proposition effecuée du messge perdant (prix) Ce second
+         * comportement est terminé quand tous les comportements éléments sont
+         * terminés Le comportement parallèle ParallelChooseBehaviour est
+         * terminé quand ses deux comportements sont terminés.
+         */
+        class ParallelChooseBehaviour extends ParallelBehaviour {
+
+            ParallelChooseBehaviour(Agent a) {
+                super(a, WHEN_ALL);
             }
 
             @Override
             public void onStart() {
                 super.onStart();
-                // Initialisation d'un sous-comportement d'écoute pour chaque vendeur
-                for (AID seller : Constants.FSMSELLER) {
-                    this.addSubBehaviour(new HandleBehaviour(seller));
+
+                if (getWinner() != null) {
+                    this.addSubBehaviour(new OneShotBehaviour(getAgent()) {
+                        @Override
+                        public void action() {
+                            ACLMessage accept = getWinner().createReply();
+                            accept.setPerformative(ACLMessage.ACCEPT_PROPOSAL);
+                            accept.setContent("votre offre est la meilleure avec un prix de " + getWinner().getContent());
+                            getAgent().send(accept);
+                        }
+                    });
+                }
+
+                ParallelBehaviour rejectParallel = new ParallelBehaviour(getAgent(), WHEN_ALL);
+                for (ACLMessage loserMsg : getLosers()) {
+                    rejectParallel.addSubBehaviour(new OneShotBehaviour(getAgent()) {
+                        @Override
+                        public void action() {
+                            ACLMessage reject = loserMsg.createReply();
+                            reject.setPerformative(ACLMessage.REJECT_PROPOSAL);
+                            reject.setContent("une offre inférieure à " + loserMsg.getContent() + " m'a été faite");
+                            getAgent().send(reject);
+                        }
+                    });
+                }
+                this.addSubBehaviour(rejectParallel);
+            }
+        }//end of ParallelChooseBehaviour 
+
+        /**
+         * Comportement ParallelHandleBehaviour Arrive dans cet état via la
+         * transition CFP suite au comportement qui envoie le cfp A l'entrée de
+         * ce comportement la liste des vendeurs getSellers comprend la liste
+         * des vendeurs initiaux Pour chaque vendeurs un comportement
+         * HandleSellerBehaviour (agent, vendeur) va être ajouté comme
+         * comportement élément Le comportement ParallelHandleMessage se termine
+         * lorsque tous les comportements HandleSellerBehaviour sont termines
+         *
+         */
+        class ParallelHandleBehaviour extends ParallelBehaviour {
+
+            ParallelHandleBehaviour(Agent a) {
+                super(a, WHEN_ALL);
+            }
+
+            @Override
+            public void onStart() {
+                super.onStart();
+                for (AID seller : getSellers()) {
+                    this.addSubBehaviour(new HandleSellerBehaviour(getAgent(), seller));
                 }
             }
 
             @Override
             public int onEnd() {
-                // Routage vers l'échec global ou vers la phase de décision
-                if (refuseCount == Constants.FSMSELLER.size()) {
-                    return 1;
+                if (getWinner() != null) {
+                    setPerformative(ACLMessage.REQUEST_WHEN);
+                } else {
+                    setPerformative(ACLMessage.FAILURE);
                 }
-                return 2;
+                return getPerformative();
             }
         }
 
-        // --- MACHINE À ÉTATS FINIS POUR CHAQUE MESSAGE UNIQUE ---
-        private class HandleBehaviour extends FSMBehaviour {
-            private final AID seller;
-            private int current;
-            private ACLMessage receivedMsg;
+        /**
+         * Comportement HandleSellerBehaviour à états finis qui par vendeur
+         * traite les réponses du vendeur qui peuvent être un propose ou un
+         * refuse. Le comportement s'arrête dès qu'il a reçu une des deux
+         * réponses qui sont les deux états terminaux * Voir
+         * HandleMessageBehaviour
+         */
+        class HandleSellerBehaviour extends FSMBehaviour { // Handle propose et refuse messages
 
-            public HandleBehaviour(AID seller) {
-                this.seller = seller;
+            private AID sender;
+            private ACLMessage receivedMessage;
+
+            HandleSellerBehaviour(Agent a, AID seller) {
+                super(a);
+                setSender(seller);
             }
 
-            @Override
-            public void onStart() {
-                registerFirstState(new HandleWaitBehaviour(), "WAITING");
-                registerLastState(new HandleProposeBehaviour(), "PROPOSING");
-                registerLastState(new HandleRefuseBehaviour(), "REFUSING");
-
-                registerTransition("WAITING", "PROPOSING", ACLMessage.PROPOSE);
-                registerTransition("WAITING", "REFUSING", ACLMessage.REFUSE);
-                registerTransition("WAITING", "WAITING", -1, new String[]{"WAITING"});
+            private void setReceivedMessage(ACLMessage message) {
+                this.receivedMessage = message;
             }
 
-            private class HandleWaitBehaviour extends OneShotBehaviour {
-                @Override
-                public void action() {
-                    MessageTemplate mt = MessageTemplate.MatchSender(seller);
-                    receivedMsg = getAgent().receive(mt);
-                    
-                    if (receivedMsg != null) {
-                        current = receivedMsg.getPerformative();
-                    } else {
-                        block();
-                        current = -1;
-                    }
-                }
-
-                @Override
-                public int onEnd() {
-                    return current;
-                }
+            private ACLMessage getReceivedMessage() {
+                return this.receivedMessage;
             }
 
-            private class HandleProposeBehaviour extends OneShotBehaviour {
-                @Override
-                public void action() {
-                    int price = Integer.parseInt(receivedMsg.getContent());
-                    if (price < bestPrice) {
-                        if (bestSeller != null) {
-                            losers.add(bestSeller);
-                        }
-                        bestPrice = price;
-                        bestSeller = seller;
-                    } else {
-                        losers.add(seller);
-                    }
-                }
+            private void setSender(AID sender) {
+                this.sender = sender;
             }
 
-            private class HandleRefuseBehaviour extends OneShotBehaviour {
-                @Override
-                public void action() {
-                    refuseCount++;
-                    if (seller.getLocalName().equals("TigerNepal")) {
-                        System.out.println("Lola imprime le message de refus de TigerNepal « action :: je ne peux pas participer à l’enchère car mon agence n’a pas de guide femme »");
-                    }
-                }
-            }
-        }
-
-        // --- ENVOI EN PARALLÈLE DU VERDICT ---
-        private class ParallelChooseBehaviour extends ParallelBehaviour {
-            public ParallelChooseBehaviour() {
-                super(WHEN_ALL);
+            private AID getSender() {
+                return this.sender;
             }
 
             @Override
             public void onStart() {
                 super.onStart();
-                this.addSubBehaviour(new AcceptBehaviour());
-                for (AID loser : losers) {
-                    this.addSubBehaviour(new RejectBehaviour(loser));
-                }
-            }
-        }
+                registerFirstState(new HandleMessageBehaviour(getAgent()), "WAITING");
+                registerLastState(new HandleProposeBehaviour(getAgent()), "PROPOSING");
+                registerLastState(new HandleRefuseBehaviour(getAgent()), "REFUSING");
 
-        private class AcceptBehaviour extends OneShotBehaviour {
-            @Override
-            public void action() {
-                if (bestSeller != null) {
-                    ACLMessage accept = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
-                    accept.addReceiver(bestSeller);
-                    accept.setContent("votre offre est la meilleure avec un prix de " + bestPrice);
-                    getAgent().send(accept);
-                }
-            }
-        }
-
-        private class RejectBehaviour extends OneShotBehaviour {
-            private final AID loser;
-
-            public RejectBehaviour(AID loser) {
-                this.loser = loser;
+                registerTransition("WAITING", "PROPOSING", ACLMessage.PROPOSE);
+                registerTransition("WAITING", "REFUSING", ACLMessage.REFUSE);
             }
 
             @Override
-            public void action() {
-                ACLMessage reject = new ACLMessage(ACLMessage.REJECT_PROPOSAL);
-                reject.addReceiver(loser);
-                
-                String content = "une offre inférieure m'a été faite";
-                String name = loser.getLocalName();
-                
-                if (name.equals("MagicNepal")) {
-                    content = "une offre inférieure à 2700 m’a été faite";
-                } else if (name.equals("AdventureNepal")) {
-                    content = "une offre inférieure à 2500 m’a été faite";
-                } else if (name.equals("TrekNepal")) {
-                    content = "une offre inférieure à 2800 m’a été faite";
-                }
-                
-                reject.setContent(content);
-                getAgent().send(reject);
+            public int onEnd() {
+                return 1;
             }
-        }
 
-        // --- ÉTAT TERMINAL EN CAS D'ÉCHEC ---
-        private class FailedBehaviour extends OneShotBehaviour {
-            @Override
-            public void action() {
-                System.out.println("Echec de l’enchère en raison de l’indisponibilité des guides femmes");
+            /**
+             * Comportement HandleMessageBehaviour comportement simple qui
+             * reçoit le message et retourne la performative reçu et bloque le
+             * comportement si message nul
+             *
+             */
+            class HandleMessageBehaviour extends SimpleBehaviour {
+
+                private MessageTemplate template;
+                private boolean finished = false;
+                private int exitValue = 0;
+
+                HandleMessageBehaviour(Agent a) {
+                    super(a);
+                    setTemplate(MessageTemplate.MatchSender(getSender()));
+                }
+
+                @Override
+                public void action() {
+                    ACLMessage msg = getAgent().receive(getTemplate());
+                    if (msg != null) {
+                        setReceivedMessage(msg);
+                        exitValue = msg.getPerformative();
+                        finished = true;
+                    } else {
+                        block();
+                    }
+                }
+
+                @Override
+                public boolean done() {
+                    return finished;
+                }
+
+                @Override
+                public int onEnd() {
+                    return exitValue;
+                }
+
+                /**
+                 * @return the template
+                 */
+                private MessageTemplate getTemplate() {
+                    return template;
+                }
+
+                /**
+                 * @param template the template to set
+                 */
+                private void setTemplate(MessageTemplate template) {
+                    this.template = template;
+                }
             }
-        }
-    }
-}
+
+            /**
+             * Comportement HandleProposeBehaviour à un coup qui traite la
+             * proposition du vendeur : si c'est la première proposition elle
+             * est la proposition gagnante courante (setWinner) et la
+             * performative de l'agent est établie à REQUEST_WHEN sinon si le
+             * prix est le plus fible (isWinner) alors elle est dite meilleure
+             * et la précédente gagnante est ajouter aux perdants (doWinner)
+             * sinon elle est perdante (doLoser)
+             */
+            class HandleProposeBehaviour extends OneShotBehaviour {
+
+                HandleProposeBehaviour(Agent a) {
+                    super(a);
+                }
+
+                @Override
+                public void action() {
+                    ACLMessage msg = getReceivedMessage();
+                    if (isFirst()) {
+                        setWinner(msg);
+                    } else if (isWinner(msg)) {
+                        doWinner(msg);
+                    } else {
+                        doLoser(msg);
+                    }
+                    trace("Traite le message recu en gagnant ou perdant", this, getAgent());
+                }//end action
+
+                /**
+                 * terminaison du comportement utiliser les méthodes de trace
+                 * permettant d'imprimer le gagnant courant et les perdants
+                 *
+                 * @return
+                 */
+                @Override
+                public int onEnd() {
+                    trace("Terminaison du comportement : \n Gagnant courant : " + (getWinner() != null ? getWinner().getContent() : "Aucun") + "\n Nombre de perdants : " + getLosers().size());
+                    return super.onEnd();
+                }
+
+                private boolean isFirst() {
+                    return getWinner() == null;
+                }
+
+                private boolean isWinner(ACLMessage message) {
+                    return isWinner(message.getContent());
+                }
+
+                private boolean isWinner(String proposition) {
+                    return doPrice(getWinner().getContent()) > doPrice(proposition);
+                }
+
+                private void doWinner(ACLMessage message) {
+                    doLoser(getWinner());
+                    setWinner(message);
+                }
+
+                private void doLoser(ACLMessage message) {
+                    getLosers().add(message);
+                }
+            }// end of HandleProposeBehaviour
+
+            class HandleRefuseBehaviour extends OneShotBehaviour {
+
+                HandleRefuseBehaviour(Agent a) {
+                    super(a);
+                }
+
+                @Override
+                public void action() {
+                    trace("action :: je ne peux pas participer à l'enchère car mon agence n'a pas de guide femme (" + getSender().getLocalName() + ")");
+                }
+            }//HandleRefuseBehaviour 
+        }//end of HandleSellerBehaviour class
+    }//end class ParallelHandleBehaviour
+}//BuyerAgent
